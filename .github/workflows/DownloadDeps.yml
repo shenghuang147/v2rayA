@@ -24,6 +24,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     env:
       NAME: v2raya
       DESC: "A web GUI client of Project V which supports VMess, VLESS, SS, SSR, Trojan and Pingtunnel protocols."
@@ -114,7 +116,6 @@ jobs:
       with:
         draft: false
         prerelease: true
-        token: ${{ secrets.AUTO_SYNC_FORK }}
         tag_name: OBS_Deps
         files: |
           web.tar.gz
