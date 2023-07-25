@@ -1,0 +1,126 @@
+name: Download Deps
+
+on:
+  push:
+    branches: [ feat_v5 ]
+    tags:
+      - v*
+    paths:
+      - "**/*.go"
+      - "go.mod"
+      - "go.sum"
+      - "gui/**"
+      - ".github/workflows/*.yml"
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - "**/*.go"
+      - "go.mod"
+      - "go.sum"
+      - "gui/**"
+      - ".github/workflows/*.yml"
+
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      NAME: v2raya
+      DESC: "A web GUI client of Project V which supports VMess, VLESS, SS, SSR, Trojan and Pingtunnel protocols."
+    steps:
+    
+    - uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+
+    - name: Prepare
+      id: prep
+      env:
+        REF: ${{ github.ref }}
+      run: |
+        echo "P_DIR=$(pwd)" >> $GITHUB_OUTPUT
+        if [[ "$REF" == "refs/tags/v"* ]]; then
+          tag=$(git describe --tags $(git rev-list --tags --max-count=1))
+          version=${tag:1}
+        else
+          date=$(git log -1 --format="%cd" --date=short | sed s/-//g)
+          count=$(git rev-list --count HEAD)
+          commit=$(git rev-parse --short HEAD)
+          version="unstable-$date.r${count}.$commit"
+        fi
+        echo "VERSION=$version" >> $GITHUB_OUTPUT
+        echo "VERSION=$version" >> $GITHUB_ENV
+    - name: Set up Go
+      uses: actions/setup-go@v3
+      with:
+        go-version: 1.19.9
+    - name: Set up Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: lts/*
+        cache: 'yarn'
+        cache-dependency-path: gui/yarn.lock
+    - uses: ruby/setup-ruby@v1
+      with:
+        ruby-version: 2.7
+        bundler-cache: true
+    - name: Install Dependencies
+      run: |
+        sudo apt-get update -y && sudo apt-get install -y gzip
+    - name: Build GUI
+      run: |
+        # https://github.com/webpack/webpack/issues/14532#issuecomment-947012063
+        export NODE_OPTIONS=--openssl-legacy-provider
+        yarn --cwd gui --check-files
+        yarn --cwd gui build
+    - name: Build v2rayA Binaries
+      run: |
+        cp -r web service/server/router/
+        for file in $(find service/server/router/web |grep -v png |grep -v index.html|grep -v .gz)
+        do
+          if [ ! -d $file ];then
+            gzip -9 $file
+          fi
+        done
+        tar -zcf web.tar.gz web
+        cd service
+        for osarch in linux/amd64 linux/arm64; do
+          export GOOS=$(echo $osarch | cut -d/ -f1)
+          export GOARCH=$(echo $osarch | cut -d/ -f2)
+          export GOMODCACHE=`pwd`/../$(echo $osarch | cut -d/ -f2)
+          SUFFIX=""
+          go mod download
+             
+        done
+        
+        cd ..
+        BUILD_DIR_=`pwd`
+        for osarch in linux/amd64 linux/arm64; do
+          cd $(echo $osarch | cut -d/ -f2)/cache/
+          tar -zcf $BUILD_DIR_/download-$(echo $osarch | cut -d/ -f2).tar.gz download
+          cd $BUILD_DIR_
+        done
+        
+    - name: Check Sha256SUM of Artifacts
+      run: |
+        for tarball in $(ls | grep tar.gz)
+        do
+          echo $(sha256sum $tarball | awk -F ' ' '{print $1}') > $tarball.sha256.txt
+        done
+
+    - name: Github Release
+      # if: startsWith(github.ref, 'refs/tags/v')
+      uses: softprops/action-gh-release@v1
+      with:
+        draft: false
+        prerelease: true
+        token: ${{ secrets.AUTO_SYNC_FORK }}
+        tag_name: OBS_Deps
+        files: |
+          web.tar.gz
+          download-amd64.tar.gz
+          download-arm64.tar.gz
+          web.tar.gz.sha256.txt
+          download-amd64.tar.gz.sha256.txt
+          download-arm64.tar.gz.sha256.txt
+
