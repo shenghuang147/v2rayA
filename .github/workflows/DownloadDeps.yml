@@ -1,0 +1,106 @@
+name: Download Deps
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ feat_v5 ]
+    tags:
+      - v*
+    paths:
+      - "**/*.go"
+      - "go.mod"
+      - "go.sum"
+      - "gui/**"
+
+
+jobs:
+  down-deps:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      NAME: v2raya
+      DESC: "A web GUI client of Project V which supports VMess, VLESS, SS, SSR, Trojan and Pingtunnel protocols."
+    steps:
+    
+    - uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+
+    - name: Prepare
+      id: prep
+      env:
+        REF: ${{ github.ref }}
+      run: |
+        echo "P_DIR=$(pwd)" >> $GITHUB_OUTPUT
+        if [[ "$REF" == "refs/tags/v"* ]]; then
+          tag=$(git describe --tags $(git rev-list --tags --max-count=1))
+          version=${tag:1}
+        else
+          date=$(git log -1 --format="%cd" --date=short | sed s/-//g)
+          count=$(git rev-list --count HEAD)
+          commit=$(git rev-parse --short HEAD)
+          version="unstable-$date.r${count}.$commit"
+        fi
+        echo "VERSION=$version" >> $GITHUB_OUTPUT
+        echo "VERSION=$version" >> $GITHUB_ENV
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v3
+      with:
+        node-version: lts/*
+        cache: 'yarn'
+        cache-dependency-path: gui/yarn.lock
+    - uses: ruby/setup-ruby@v1
+      with:
+        ruby-version: 2.7
+        bundler-cache: true
+    - name: Install Dependencies
+      run: |
+        sudo apt-get update -y && sudo apt-get install -y gzip
+    - name: Build GUI
+      run: |
+        # https://github.com/webpack/webpack/issues/14532#issuecomment-947012063
+        export NODE_OPTIONS=--openssl-legacy-provider
+        yarn --cwd gui --check-files
+        yarn --cwd gui build
+    - name: Build v2rayA Binaries
+      run: |
+        cp -r web service/server/router/
+        for file in $(find service/server/router/web |grep -v png |grep -v index.html|grep -v .gz)
+        do
+          if [ ! -d $file ];then
+            gzip -9 $file
+          fi
+        done
+
+        tar -zcf web.tar.gz web
+        
+        cd service
+        export GOMODCACHE=`pwd`/../GO-MOD
+        go mod download
+        
+        cd ..
+
+        tar -zcf v2raya-go-mod.tar.gz -C GO-MOD/cache download
+
+    - name: Github Release
+      uses: softprops/action-gh-release@v1
+      with:
+        draft: false
+        prerelease: true
+        tag_name: OBS_Deps
+        files: |
+          web.tar.gz
+          v2raya-go-mod.tar.gz
+
+    - name: tirgger obs service
+      run: |
+        echo $(date) > OBS_TRIGGER/trigger
+        git config user.name github-actions
+        git config user.email github-actions@github.com
+        git add OBS_TRIGGER
+        sleep 180 && \
+        git commit -m "chore: trigger obs service time"
+        git push origin feat_v5
+
