@@ -2,4 +2,4 @@ workflow:
   steps:
     - trigger_services:
         project: home:Psheng
-        package: dae
+        package: v2raya
