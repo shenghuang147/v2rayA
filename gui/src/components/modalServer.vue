@@ -379,6 +379,49 @@
           </b-field>
         </b-tab-item>
 
+        <b-tab-item label="Juicity">
+          <b-field label="Name" label-position="on-border">
+            <b-input ref="juicity_name" v-model="juicity.name" :placeholder="$t('configureServer.servername')" expanded />
+          </b-field>
+          <b-field label="Host" label-position="on-border">
+            <b-input ref="juicity_server" v-model="juicity.server" required placeholder="IP / HOST" expanded />
+          </b-field>
+          <b-field label="Port" label-position="on-border">
+            <b-input ref="juicity_port" v-model="juicity.port" required :placeholder="$t('configureServer.port')"
+              type="number" expanded />
+          </b-field>
+          <b-field label="UUID" label-position="on-border">
+            <b-input ref="juicity_uuid" v-model="juicity.uuid" required placeholder="UUID" expanded />
+          </b-field>
+          <b-field label="Password" label-position="on-border">
+            <b-input ref="juicity_password" v-model="juicity.password" required
+              :placeholder="$t('configureServer.password')" expanded />
+          </b-field>
+          <b-field label="Congestion Control" label-position="on-border">
+            <b-select ref="juicity_cc" v-model="juicity.cc" expanded required>
+              <option value="bbr">bbr</option>
+            </b-select>
+          </b-field>
+          <b-field label-position="on-border">
+            <template slot="label">
+              AllowInsecure
+            </template>
+            <b-select ref="juicity_allow_insecure" v-model="juicity.allowInsecure" expanded required>
+              <option :value="false">{{ $t("operations.no") }}</option>
+              <option :value="true">
+                {{ $t("operations.yes") }}
+              </option>
+            </b-select>
+          </b-field>
+          <b-field label="SNI" label-position="on-border">
+            <b-input v-model="juicity.sni" placeholder="SNI" expanded />
+          </b-field>
+          <b-field label="Pinned Cert Chain Sha256" label-position="on-border">
+            <b-input v-model="juicity.pinnedCertchainSha256" :placeholder="$t('configureServer.pinnedCertchainSha256')"
+              expanded />
+          </b-field>
+        </b-tab-item>
+
         <b-tab-item label="HTTP">
           <b-field label="Protocol" label-position="on-border">
             <b-select v-model="http.protocol" expanded>
@@ -521,6 +564,18 @@ export default {
       obfs: "none" /* websocket */,
       protocol: "trojan",
     },
+    juicity: {
+      name: "",
+      server: "",
+      port: "",
+      sni: "",
+      cc: "bbr",
+      uuid: "",
+      password: "",
+      pinnedCertchainSha256: "",
+      allowInsecure: false,
+      protocol: "juicity"
+    },
     http: {
       username: "",
       password: "",
@@ -576,16 +631,21 @@ export default {
             this.trojan = this.resolveURL(res.data.data.sharingAddress);
             this.tabChoice = 3;
           } else if (
+            res.data.data.sharingAddress.toLowerCase().startsWith("juicity://")
+          ) {
+            this.juicity = this.resolveURL(res.data.data.sharingAddress);
+            this.tabChoice = 4;
+          } else if (
             res.data.data.sharingAddress.toLowerCase().startsWith("http://") ||
             res.data.data.sharingAddress.toLowerCase().startsWith("https://")
           ) {
             this.http = this.resolveURL(res.data.data.sharingAddress);
-            this.tabChoice = 4;
+            this.tabChoice = 5;
           } else if (
             res.data.data.sharingAddress.toLowerCase().startsWith("socks5://")
           ) {
             this.socks5 = this.resolveURL(res.data.data.sharingAddress);
-            this.tabChoice = 5;
+            this.tabChoice = 6;
           }
           this.$nextTick(() => {
             if (this.readonly) {
@@ -793,6 +853,20 @@ export default {
           }
         }
         return o;
+      } else if (url.toLowerCase().startsWith("juicity://")) {
+        let u = parseURL(url);
+        return {
+          name: decodeURIComponent(u.hash),
+          uuid: decodeURIComponent(u.username),
+          password: decodeURIComponent(u.password),
+          server: u.host,
+          port: u.port,
+          sni: u.params.sni || "",
+          allowInsecure:
+            u.params.allow_insecure === true || u.params.allow_insecure === "1",
+          pinnedCertchainSha256: u.params.pinned_certchain_sha256 || "",
+          cc: u.params.congestion_control || "bbr",
+        };
       } else if (
         url.toLowerCase().startsWith("http://") ||
         url.toLowerCase().startsWith("https://")
@@ -828,9 +902,9 @@ export default {
           // https://github.com/XTLS/Xray-core/discussions/716
           query = {
             type: srcObj.net,
-            flow: srcObj.flow,
+            flow: srcObj.flow || "",
             security: srcObj.tls,
-            fp: srcObj.fp,
+            fp: srcObj.fp || "",
             path: srcObj.path,
             host: srcObj.host,
             headerType: srcObj.type,
@@ -967,6 +1041,26 @@ export default {
             hash: srcObj.name,
             params: query,
           });
+        case "juicity":
+          query = {
+            allow_insecure: srcObj.allowInsecure,
+            congestion_control: srcObj.cc,
+          };
+          if (srcObj.sni !== "") {
+            query.sni = srcObj.sni;
+          }
+          if (srcObj.pinnedCertchainSha256 !== "") {
+            query.pinned_certchain_sha256 = srcObj.pinnedCertchainSha256;
+          }
+          return generateURL({
+            protocol: "juicity",
+            username: srcObj.uuid,
+            password: srcObj.password,
+            host: srcObj.server,
+            port: srcObj.port,
+            hash: srcObj.name,
+            params: query,
+          });
         case "http":
         case "https":
           tmp = {
@@ -1032,10 +1126,13 @@ export default {
         if (this.tabChoice === 3 && !k.startsWith("trojan_")) {
           continue;
         }
-        if (this.tabChoice === 4 && !k.startsWith("http_")) {
+        if (this.tabChoice === 4 && !k.startsWith("juicity_")) {
           continue;
         }
-        if (this.tabChoice === 5 && !k.startsWith("socks5_")) {
+        if (this.tabChoice === 5 && !k.startsWith("http_")) {
+          continue;
+        }
+        if (this.tabChoice === 6 && !k.startsWith("socks5_")) {
           continue;
         }
         let x = this.$refs[k];
@@ -1083,8 +1180,10 @@ export default {
       } else if (this.tabChoice === 3) {
         coded = this.generateURL(this.trojan);
       } else if (this.tabChoice === 4) {
-        coded = this.generateURL(this.http);
+        coded = this.generateURL(this.juicity);
       } else if (this.tabChoice === 5) {
+        coded = this.generateURL(this.http);
+      } else if (this.tabChoice === 6) {
         coded = this.generateURL(this.socks5);
       }
       this.$emit("submit", coded);
