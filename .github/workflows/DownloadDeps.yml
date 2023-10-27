@@ -64,6 +64,10 @@ jobs:
         export NODE_OPTIONS=--openssl-legacy-provider
         yarn --cwd gui --check-files
         yarn --cwd gui build
+    - name: Set up Go
+      uses: actions/setup-go@v3
+      with:
+        go-version: ^1.21
     - name: Build v2rayA Binaries
       run: |
         cp -r web service/server/router/
