@@ -14,4 +14,4 @@ jobs:
           token: ${{ secrets.AUTO_SYNC_FORK }}
           owner: v2rayA
           base: main
-          head: main
+          head: feat_v5
